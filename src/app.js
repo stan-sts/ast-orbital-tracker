@@ -35,13 +35,15 @@
       var refs = ['mountRef','refClock','refDate','refSrc','refSrcDot','refOpCount','refPlannedToggle',
         'refAlt','refVel','refInc','refPer','refGeo','refCov','refPass','refPassBox','refRegion','refChips',
         'refLoad','refLocDot','refLocLabel','refLocSub','chevron','listBody','selPanel','fleetRows',
-        'refLaunch','refRocket','refSite','refStatus'];
+        'refLaunch','refRocket','refSite','refStatus','locManual','locInput'];
       for(var i=0;i<refs.length;i++) this.dom[refs[i]] = byId(refs[i]);
       var self=this;
       byId('toggleList').addEventListener('click', function(){ self.toggleList(); });
       byId('plannedRow').addEventListener('click', function(){ self.onTogglePlanned(); });
       byId('locateBtn').addEventListener('click', function(){ self.locateMe(false); });
       byId('deselectBtn').addEventListener('click', function(){ self.deselect(); });
+      var li=byId('locInput');
+      if(li){ li.addEventListener('keydown', function(e){ if(e.key==='Enter'){ e.preventDefault(); self.submitManual(); } }); li.addEventListener('click', function(e){ e.stopPropagation(); }); }
       this.startClock();
       this.boot();
     },
@@ -363,17 +365,48 @@
     // ---------- GEOLOCATION ----------
     locateMe: function(silent){
       var self=this;
-      if(!navigator.geolocation){ this.locFail('GEOLOCATION UNSUPPORTED'); return; }
+      if(!navigator.geolocation || !window.isSecureContext){
+        if(silent) this.locFail('ENABLE MY LOCATION'); else this.showManual('AUTO-LOCATION UNAVAILABLE');
+        return;
+      }
       if(this.dom.refLocLabel) this.dom.refLocLabel.textContent='LOCATING…';
       navigator.geolocation.getCurrentPosition(
-        function(pos){ self.setUser(pos.coords.latitude,pos.coords.longitude); },
-        function(err){ if(!silent) self.locFail('LOCATION BLOCKED — RETRY'); else self.locFail('ENABLE MY LOCATION'); },
+        function(pos){ self.hideManual(); self.setUser(pos.coords.latitude,pos.coords.longitude); },
+        function(err){
+          if(silent){ self.locFail('ENABLE MY LOCATION'); return; }
+          self.showManual((err && err.code===1) ? 'LOCATION BLOCKED HERE' : 'LOCATION UNAVAILABLE');
+        },
         {enableHighAccuracy:false,timeout:8000,maximumAge:60000}
       );
     },
     locFail: function(msg){ if(this.dom.refLocLabel) this.dom.refLocLabel.textContent=msg; if(this.dom.refLocSub) this.dom.refLocSub.textContent='tap to plot & check coverage'; },
 
+    // In-page fallback when the browser/iframe blocks geolocation (works everywhere).
+    showManual: function(why){
+      if(this.dom.refLocLabel) this.dom.refLocLabel.textContent=why||'ENTER LOCATION';
+      if(this.dom.refLocSub) this.dom.refLocSub.textContent='type it below ↓';
+      if(this.dom.locManual) this.dom.locManual.style.display='block';
+      if(this.dom.locInput){ try{ this.dom.locInput.focus(); }catch(e){} }
+    },
+    hideManual: function(){ if(this.dom.locManual) this.dom.locManual.style.display='none'; },
+    submitManual: function(){
+      var s=(this.dom.locInput && this.dom.locInput.value || '').trim();
+      var ll=this.parseLatLon(s);
+      if(ll){ this.hideManual(); this.setUser(ll.lat,ll.lon); }
+      else if(this.dom.locInput){ this.dom.locInput.style.borderColor='#ff5a6a'; this.dom.locInput.value=''; this.dom.locInput.placeholder='try: 40.71, -74.01  or  London'; }
+    },
+    parseLatLon: function(str){
+      if(!str) return null;
+      var key=str.toLowerCase().replace(/[^a-z ]/g,'').replace(/\s+/g,' ').trim();
+      if(this.cities[key]) return {lat:this.cities[key][0], lon:this.cities[key][1]};
+      var m=str.match(/(-?\d+(?:\.\d+)?)\s*[, ]\s*(-?\d+(?:\.\d+)?)/);
+      if(m){ var lat=parseFloat(m[1]), lon=parseFloat(m[2]); if(lat>=-90&&lat<=90&&lon>=-180&&lon<=180) return {lat:lat,lon:lon}; }
+      return null;
+    },
+    cities: {'new york':[40.71,-74.01],'london':[51.51,-0.13],'tokyo':[35.68,139.69],'san francisco':[37.77,-122.42],'los angeles':[34.05,-118.24],'chicago':[41.88,-87.63],'paris':[48.85,2.35],'berlin':[52.52,13.40],'madrid':[40.42,-3.70],'singapore':[1.35,103.82],'sydney':[-33.87,151.21],'dubai':[25.20,55.27],'sao paulo':[-23.55,-46.63],'mexico city':[19.43,-99.13],'lagos':[6.52,3.38],'mumbai':[19.08,72.88],'delhi':[28.61,77.21],'beijing':[39.90,116.40],'shanghai':[31.23,121.47],'hong kong':[22.32,114.17],'seoul':[37.57,126.98],'toronto':[43.65,-79.38],'cairo':[30.04,31.24],'moscow':[55.76,37.62],'istanbul':[41.01,28.98]},
+
     setUser: function(lat,lon){
+      this.hideManual();
       this.userLL={lat:lat,lon:lon};
       var latR=lat*Math.PI/180, lonR=lon*Math.PI/180;
       var ex=Math.cos(latR)*Math.cos(lonR), ey=Math.cos(latR)*Math.sin(lonR), ez=Math.sin(latR);
