@@ -1,0 +1,240 @@
+<title>AST Orbital Tracker</title>
+<style>
+  :root{ --mono: ui-monospace,'SF Mono','Menlo','Consolas',monospace; --disp: system-ui,-apple-system,'Segoe UI','Helvetica Neue',sans-serif; }
+  html,body{margin:0;padding:0;background:#04060c;overflow:hidden;height:100%;width:100%;}
+  #astRoot *{box-sizing:border-box;}
+  ::selection{background:rgba(79,214,255,.3);}
+  @keyframes blink{0%,100%{opacity:1}50%{opacity:.25}}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  @keyframes sweep{0%{transform:translateY(-100%)}100%{transform:translateY(100%)}}
+  @keyframes spinR{to{transform:rotate(-360deg)}}
+  @keyframes gyro{from{transform:rotateX(-22deg) rotateY(0deg)}to{transform:rotateX(-22deg) rotateY(360deg)}}
+  @keyframes holoScan{0%{transform:translateY(-130%)}100%{transform:translateY(130%)}}
+  @keyframes panelIn2{from{opacity:0;transform:translateX(26px)}to{opacity:1;transform:translateX(0)}}
+  .fleet-row{position:relative;display:flex;align-items:center;gap:10px;padding:8.5px 13px;cursor:pointer;border-bottom:1px solid rgba(79,214,255,.05);transition:background .15s;}
+  .fleet-row:hover{background:rgba(79,214,255,.12);}
+  #toggleList:hover{background:rgba(79,214,255,.1) !important;}
+  #plannedRow:hover{background:rgba(255,158,69,.1) !important;}
+  #locateBtn:hover{background:rgba(255,79,139,.1) !important;}
+  #deselectBtn:hover{background:rgba(255,255,255,.08) !important;}
+  @media (prefers-reduced-motion: reduce){ #astRoot *{animation:none !important;} }
+</style>
+
+<div id="astRoot" style="position:fixed;inset:0;background:#04060c;font-family:var(--disp);color:#dbe7f5;overflow:hidden;">
+
+  <div id="mountRef" style="position:absolute;inset:0;cursor:grab;"></div>
+
+  <div style="position:absolute;inset:0;pointer-events:none;background:radial-gradient(ellipse 120% 80% at 50% 50%,transparent 55%,rgba(2,4,10,.55) 100%);"></div>
+
+  <!-- scanline sweep -->
+  <div style="position:absolute;inset:0;pointer-events:none;overflow:hidden;opacity:.5;">
+    <div style="position:absolute;left:0;right:0;height:38%;background:linear-gradient(to bottom,transparent,rgba(79,214,255,.04) 50%,transparent);animation:sweep 9s linear infinite;"></div>
+  </div>
+
+  <!-- corner HUD frame -->
+  <div style="position:absolute;inset:13px;pointer-events:none;z-index:4;">
+    <div style="position:absolute;top:0;left:0;width:30px;height:30px;border-top:1.5px solid rgba(79,214,255,.38);border-left:1.5px solid rgba(79,214,255,.38);"></div>
+    <div style="position:absolute;top:0;right:0;width:30px;height:30px;border-top:1.5px solid rgba(79,214,255,.38);border-right:1.5px solid rgba(79,214,255,.38);"></div>
+    <div style="position:absolute;bottom:0;left:0;width:30px;height:30px;border-bottom:1.5px solid rgba(79,214,255,.38);border-left:1.5px solid rgba(79,214,255,.38);"></div>
+    <div style="position:absolute;bottom:0;right:0;width:30px;height:30px;border-bottom:1.5px solid rgba(79,214,255,.38);border-right:1.5px solid rgba(79,214,255,.38);"></div>
+    <div style="position:absolute;top:50%;left:0;width:7px;height:1px;background:rgba(79,214,255,.32);"></div>
+    <div style="position:absolute;top:50%;right:0;width:7px;height:1px;background:rgba(79,214,255,.32);"></div>
+    <div style="position:absolute;left:50%;top:0;width:1px;height:7px;background:rgba(79,214,255,.32);"></div>
+    <div style="position:absolute;left:50%;bottom:0;width:1px;height:7px;background:rgba(79,214,255,.32);"></div>
+  </div>
+
+  <!-- TOP BAR -->
+  <div style="position:absolute;top:0;left:0;right:0;height:62px;display:flex;align-items:center;justify-content:space-between;padding:0 22px;pointer-events:none;background:linear-gradient(to bottom,rgba(4,6,12,.85),transparent);">
+    <div style="display:flex;align-items:center;gap:12px;pointer-events:auto;">
+      <div style="display:flex;flex-direction:column;">
+        <div style="display:flex;align-items:baseline;gap:5px;line-height:1;">
+          <span style="font-size:18px;font-weight:700;letter-spacing:.01em;color:#f3f9ff;">AST</span>
+          <span style="font-size:18px;font-weight:400;letter-spacing:.005em;color:#a4c8ea;">SpaceMobile</span>
+        </div>
+        <div style="font-size:8.5px;letter-spacing:.4em;color:#5e7da0;font-family:var(--mono);margin-top:4px;">ORBITAL&nbsp;NETWORK&nbsp;·&nbsp;LIVE</div>
+      </div>
+    </div>
+
+    <div style="text-align:center;pointer-events:auto;">
+      <div id="refClock" style="font-family:var(--mono);font-size:18px;font-weight:500;letter-spacing:.1em;color:#eaf4ff;font-variant-numeric:tabular-nums;">--:--:-- UTC</div>
+      <div id="refDate" style="font-size:9.5px;letter-spacing:.34em;color:#5e7da0;font-family:var(--mono);margin-top:1px;">SYNCHRONIZING</div>
+    </div>
+
+    <div style="display:flex;align-items:center;gap:10px;pointer-events:auto;">
+      <div style="display:flex;align-items:center;gap:7px;padding:6px 11px;border:1px solid rgba(79,214,255,.22);border-radius:3px;background:rgba(10,18,32,.55);backdrop-filter:blur(6px);">
+        <div id="refSrcDot" style="width:7px;height:7px;border-radius:50%;background:#ffb347;box-shadow:0 0 8px #ffb347;animation:blink 1.4s infinite;"></div>
+        <span id="refSrc" style="font-family:var(--mono);font-size:10px;letter-spacing:.16em;color:#9fb6d0;">CONNECTING…</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- LEFT: fleet list -->
+  <div style="position:absolute;left:18px;top:74px;width:256px;pointer-events:auto;animation:panelIn2 .34s cubic-bezier(.2,.8,.2,1);">
+    <div style="display:flex;align-items:center;gap:9px;margin:0 0 9px 2px;">
+      <div style="perspective:200px;flex:none;"><div style="position:relative;width:22px;height:22px;transform-style:preserve-3d;animation:gyro 7s linear infinite;"><div style="position:absolute;inset:0;border-radius:50%;border:1.2px solid rgba(127,233,255,.8);transform:rotateY(70deg);"></div><div style="position:absolute;inset:0;border-radius:50%;border:1.2px solid rgba(79,214,255,.65);transform:rotateX(70deg);"></div><div style="position:absolute;left:50%;top:50%;width:5px;height:5px;border-radius:50%;background:#eaf8ff;box-shadow:0 0 8px #4fd6ff;transform:translate(-50%,-50%);"></div></div></div>
+      <div style="font-family:var(--mono);font-size:9.5px;letter-spacing:.34em;color:#7fb4d8;">CONSTELLATION</div>
+    </div>
+    <div style="position:relative;border:1px solid rgba(79,214,255,.22);background:linear-gradient(158deg,rgba(8,16,28,.26),rgba(6,11,20,.12));backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);box-shadow:0 14px 44px rgba(0,0,0,.34);clip-path:polygon(0 0,calc(100% - 15px) 0,100% 15px,100% 100%,15px 100%,0 calc(100% - 15px));overflow:hidden;">
+      <div style="position:absolute;left:0;right:0;top:0;height:26px;background:linear-gradient(to bottom,rgba(127,233,255,.07),transparent);animation:holoScan 4.5s ease-in-out infinite;pointer-events:none;"></div>
+      <div id="toggleList" style="padding:9px 13px;font-family:var(--mono);font-size:9px;letter-spacing:.22em;color:#7fe9ff;text-shadow:0 1px 4px rgba(0,0,0,.6);border-bottom:1px solid rgba(79,214,255,.14);display:flex;justify-content:space-between;align-items:center;background:rgba(79,214,255,.04);cursor:pointer;">
+        <span style="display:flex;align-items:center;gap:7px;"><span style="width:5px;height:5px;background:#7CFFCB;border-radius:50%;box-shadow:0 0 8px #7CFFCB;animation:blink 1.6s infinite;"></span>OPERATIONAL</span><span style="display:flex;align-items:center;gap:10px;"><span id="refOpCount" style="color:#8fb4d8;">—</span><span id="chevron" style="font-size:11px;color:#7fe9ff;width:10px;text-align:center;line-height:1;">▾</span></span>
+      </div>
+      <div id="listBody">
+        <div id="fleetRows"></div>
+        <div id="plannedRow" style="padding:9px 13px;cursor:pointer;display:flex;align-items:center;gap:10px;border-top:1px solid rgba(255,158,69,.18);background:rgba(255,158,69,.04);">
+          <div style="width:7px;height:7px;border-radius:50%;background:#ff9e45;box-shadow:0 0 8px #ff9e45;flex:none;"></div>
+          <div style="flex:1;">
+            <div style="font-size:12px;font-weight:600;color:#ffc78c;text-shadow:0 1px 5px rgba(0,0,0,.7);">Planned · Block 2</div>
+            <div style="font-family:var(--mono);font-size:8.5px;color:#bd966a;letter-spacing:.06em;text-shadow:0 1px 4px rgba(0,0,0,.6);">FUTURE BUILD-OUT · 45–60 BY '26</div>
+          </div>
+          <div id="refPlannedToggle" style="font-family:var(--mono);font-size:9px;color:#ff9e45;">ON</div>
+        </div>
+      </div>
+    </div>
+    <div style="display:flex;gap:7px;margin:9px 2px 0;font-family:var(--mono);font-size:7.5px;letter-spacing:.08em;color:#7392b4;text-shadow:0 1px 4px rgba(0,0,0,.7);">
+      <span style="display:flex;align-items:center;gap:4px;"><span style="width:5px;height:5px;border-radius:50%;background:#7CFFCB;"></span>LIVE</span>
+      <span style="display:flex;align-items:center;gap:4px;"><span style="width:5px;height:5px;border-radius:50%;background:#ff5a6a;"></span>LOST</span>
+    </div>
+    <div style="font-family:var(--mono);font-size:8px;color:#6885a6;letter-spacing:.1em;margin:7px 2px 0;line-height:1.6;text-shadow:0 1px 4px rgba(0,0,0,.7);">CLICK TO LOCK &amp; TRACK · DRAG TO ORBIT · SCROLL TO ZOOM</div>
+  </div>
+
+  <!-- RIGHT: telemetry panel -->
+  <div id="selPanel" style="display:none;position:absolute;right:18px;top:74px;width:322px;pointer-events:auto;animation:panelIn2 .34s cubic-bezier(.2,.8,.2,1);">
+    <div style="position:relative;border:1px solid rgba(79,214,255,.32);background:linear-gradient(158deg,rgba(10,18,32,.92),rgba(6,11,20,.82));backdrop-filter:blur(13px);box-shadow:0 14px 48px rgba(0,0,0,.58),0 0 36px rgba(79,214,255,.1),inset 0 0 0 1px rgba(79,214,255,.05);clip-path:polygon(0 0,calc(100% - 18px) 0,100% 18px,100% 100%,18px 100%,0 calc(100% - 18px));overflow:hidden;">
+
+      <!-- status strip -->
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:9px 14px 8px;border-bottom:1px solid rgba(79,214,255,.18);background:rgba(79,214,255,.05);">
+        <div style="font-family:var(--mono);font-size:9px;letter-spacing:.3em;color:#4fd6ff;display:flex;align-items:center;gap:8px;"><span style="width:6px;height:6px;background:#4fd6ff;border-radius:50%;box-shadow:0 0 9px #4fd6ff;animation:blink 1.4s infinite;"></span>TRACKING&nbsp;LOCK</div>
+        <div id="deselectBtn" style="width:20px;height:20px;border:1px solid rgba(159,182,208,.4);display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:11px;color:#9fb6d0;clip-path:polygon(0 0,100% 0,100% 68%,68% 100%,0 100%);">✕</div>
+      </div>
+
+      <!-- HOLOGRAM BAY -->
+      <div style="position:relative;height:138px;border-bottom:1px solid rgba(79,214,255,.18);overflow:hidden;background:radial-gradient(ellipse 78% 72% at 50% 58%,rgba(79,214,255,.14),rgba(7,13,24,0) 72%);">
+        <div style="position:absolute;inset:0;background-image:linear-gradient(rgba(79,214,255,.08) 1px,transparent 1px),linear-gradient(90deg,rgba(79,214,255,.08) 1px,transparent 1px);background-size:17px 17px;-webkit-mask:radial-gradient(ellipse 70% 62% at 50% 56%,#000 32%,transparent 80%);mask:radial-gradient(ellipse 70% 62% at 50% 56%,#000 32%,transparent 80%);"></div>
+        <div style="position:absolute;left:0;right:0;top:0;height:30px;background:linear-gradient(to bottom,transparent,rgba(127,233,255,.13),transparent);animation:holoScan 3.4s ease-in-out infinite;"></div>
+        <div style="position:absolute;left:50%;top:55%;transform:translate(-50%,-50%);width:150px;height:150px;display:flex;align-items:center;justify-content:center;">
+          <div style="position:absolute;width:128px;height:128px;border-radius:50%;border:1px solid rgba(79,214,255,.16);"></div>
+          <div style="position:absolute;width:128px;height:128px;border-radius:50%;background:conic-gradient(from 0deg,transparent 0 288deg,rgba(79,214,255,.3) 360deg);-webkit-mask:radial-gradient(circle,transparent 0 60px,#000 61px);mask:radial-gradient(circle,transparent 0 60px,#000 61px);animation:spin 3.6s linear infinite;"></div>
+          <div style="perspective:540px;">
+            <div style="position:relative;width:90px;height:90px;transform-style:preserve-3d;animation:gyro 8.5s linear infinite;">
+              <div style="position:absolute;inset:0;border-radius:50%;border:1.4px solid rgba(127,233,255,.88);box-shadow:0 0 13px rgba(79,214,255,.45);transform:rotateY(74deg);"></div>
+              <div style="position:absolute;inset:0;border-radius:50%;border:1.4px solid rgba(79,214,255,.72);box-shadow:0 0 13px rgba(79,214,255,.35);transform:rotateX(74deg);"></div>
+              <div style="position:absolute;inset:0;border-radius:50%;border:1px solid rgba(79,214,255,.5);transform:rotateY(38deg) rotateX(42deg);"></div>
+              <div style="position:absolute;inset:8px;border-radius:50%;border:1px dashed rgba(127,233,255,.4);"></div>
+              <div style="position:absolute;left:50%;top:50%;width:17px;height:17px;border-radius:50%;background:radial-gradient(circle,#eaf8ff 0%,#4fd6ff 55%,transparent 100%);box-shadow:0 0 22px #4fd6ff;transform:translate(-50%,-50%);"></div>
+            </div>
+          </div>
+        </div>
+        <div style="position:absolute;left:13px;top:10px;font-family:var(--mono);font-size:8px;letter-spacing:.22em;color:#5e7da0;">OBJ&nbsp;HOLOGRAM</div>
+        <div style="position:absolute;right:13px;top:10px;font-family:var(--mono);font-size:8px;letter-spacing:.22em;color:#7CFFCB;">● RENDER</div>
+        <div style="position:absolute;left:14px;right:14px;bottom:9px;">
+          <div id="selName" style="font-size:19px;font-weight:700;color:#eaf4ff;letter-spacing:.02em;text-shadow:0 0 16px rgba(79,214,255,.55);">—</div>
+          <div style="font-family:var(--mono);font-size:9px;color:#7e9bbb;letter-spacing:.1em;margin-top:1px;">NORAD <span id="selId">—</span> · <span id="selBlock">—</span></div>
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:1px;background:rgba(79,214,255,.1);">
+        <div style="position:relative;background:rgba(7,13,24,.85);padding:11px 14px;">
+          <div style="position:absolute;top:8px;right:9px;width:6px;height:6px;border-top:1px solid rgba(79,214,255,.4);border-right:1px solid rgba(79,214,255,.4);"></div>
+          <div style="font-family:var(--mono);font-size:8.5px;letter-spacing:.2em;color:#5e7da0;">ALTITUDE</div>
+          <div id="refAlt" style="font-family:var(--mono);font-size:17px;font-weight:600;color:#eaf4ff;margin-top:2px;font-variant-numeric:tabular-nums;">— km</div>
+        </div>
+        <div style="position:relative;background:rgba(7,13,24,.85);padding:11px 14px;">
+          <div style="position:absolute;top:8px;right:9px;width:6px;height:6px;border-top:1px solid rgba(79,214,255,.4);border-right:1px solid rgba(79,214,255,.4);"></div>
+          <div style="font-family:var(--mono);font-size:8.5px;letter-spacing:.2em;color:#5e7da0;">VELOCITY</div>
+          <div id="refVel" style="font-family:var(--mono);font-size:17px;font-weight:600;color:#eaf4ff;margin-top:2px;font-variant-numeric:tabular-nums;">— km/s</div>
+        </div>
+        <div style="position:relative;background:rgba(7,13,24,.85);padding:11px 14px;">
+          <div style="position:absolute;top:8px;right:9px;width:6px;height:6px;border-top:1px solid rgba(79,214,255,.4);border-right:1px solid rgba(79,214,255,.4);"></div>
+          <div style="font-family:var(--mono);font-size:8.5px;letter-spacing:.2em;color:#5e7da0;">INCLINATION</div>
+          <div id="refInc" style="font-family:var(--mono);font-size:17px;font-weight:600;color:#eaf4ff;margin-top:2px;font-variant-numeric:tabular-nums;">—°</div>
+        </div>
+        <div style="position:relative;background:rgba(7,13,24,.85);padding:11px 14px;">
+          <div style="position:absolute;top:8px;right:9px;width:6px;height:6px;border-top:1px solid rgba(79,214,255,.4);border-right:1px solid rgba(79,214,255,.4);"></div>
+          <div style="font-family:var(--mono);font-size:8.5px;letter-spacing:.2em;color:#5e7da0;">PERIOD</div>
+          <div id="refPer" style="font-family:var(--mono);font-size:17px;font-weight:600;color:#eaf4ff;margin-top:2px;font-variant-numeric:tabular-nums;">— min</div>
+        </div>
+      </div>
+
+      <!-- LAUNCH MISSION -->
+      <div style="padding:12px 15px;border-top:1px solid rgba(79,214,255,.12);">
+        <div style="font-family:var(--mono);font-size:8.5px;letter-spacing:.2em;color:#5e7da0;margin-bottom:8px;">LAUNCH MISSION</div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;">
+          <span style="font-family:var(--mono);font-size:8.5px;letter-spacing:.16em;color:#5e7da0;">LAUNCHED</span>
+          <span id="refLaunch" style="font-family:var(--mono);font-size:10.5px;color:#bcd4ee;font-variant-numeric:tabular-nums;">—</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;">
+          <span style="font-family:var(--mono);font-size:8.5px;letter-spacing:.16em;color:#5e7da0;">VEHICLE</span>
+          <span id="refRocket" style="font-family:var(--mono);font-size:10.5px;color:#bcd4ee;">—</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <span style="font-family:var(--mono);font-size:8.5px;letter-spacing:.16em;color:#5e7da0;">SITE</span>
+          <span id="refSite" style="font-family:var(--mono);font-size:10.5px;color:#bcd4ee;">—</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;padding-top:8px;border-top:1px solid rgba(79,214,255,.08);">
+          <span style="font-family:var(--mono);font-size:8.5px;letter-spacing:.2em;color:#5e7da0;">STATUS</span>
+          <span id="refStatus" style="display:flex;align-items:center;gap:6px;font-family:var(--mono);font-size:11px;font-weight:600;letter-spacing:.06em;color:#7CFFCB;"><span style="width:7px;height:7px;border-radius:50%;background:#7CFFCB;box-shadow:0 0 8px #7CFFCB;flex:none;"></span>ONLINE</span>
+        </div>
+      </div>
+
+      <div style="position:relative;padding:13px 15px;border-top:1px solid rgba(79,214,255,.12);overflow:hidden;">
+        <div style="position:absolute;right:-30px;top:-30px;width:96px;height:96px;border-radius:50%;border:1px solid rgba(79,214,255,.12);"></div>
+        <div style="position:absolute;right:-14px;top:-14px;width:64px;height:64px;border-radius:50%;border:1px dashed rgba(79,214,255,.1);animation:spin 9s linear infinite;"></div>
+        <div style="font-family:var(--mono);font-size:8.5px;letter-spacing:.2em;color:#5e7da0;display:flex;align-items:center;gap:6px;"><span style="width:5px;height:5px;border-radius:50%;background:#7CFFCB;box-shadow:0 0 7px #7CFFCB;animation:blink 1.5s infinite;"></span>CURRENTLY COVERING</div>
+        <div id="refRegion" style="font-size:16px;font-weight:700;color:#eaf4ff;letter-spacing:.03em;margin-top:4px;text-shadow:0 0 14px rgba(79,214,255,.4);">—</div>
+        <div id="refChips" style="display:flex;gap:5px;margin-top:9px;flex-wrap:wrap;">
+          <div data-code="NA" style="font-family:var(--mono);font-size:8.5px;letter-spacing:.06em;padding:3px 7px;border:1px solid rgba(79,214,255,.14);color:#41618a;clip-path:polygon(0 0,100% 0,100% 68%,calc(100% - 5px) 100%,0 100%);transition:all .25s;">N.AM</div>
+          <div data-code="SA" style="font-family:var(--mono);font-size:8.5px;letter-spacing:.06em;padding:3px 7px;border:1px solid rgba(79,214,255,.14);color:#41618a;clip-path:polygon(0 0,100% 0,100% 68%,calc(100% - 5px) 100%,0 100%);transition:all .25s;">S.AM</div>
+          <div data-code="EU" style="font-family:var(--mono);font-size:8.5px;letter-spacing:.06em;padding:3px 7px;border:1px solid rgba(79,214,255,.14);color:#41618a;clip-path:polygon(0 0,100% 0,100% 68%,calc(100% - 5px) 100%,0 100%);transition:all .25s;">EUR</div>
+          <div data-code="AF" style="font-family:var(--mono);font-size:8.5px;letter-spacing:.06em;padding:3px 7px;border:1px solid rgba(79,214,255,.14);color:#41618a;clip-path:polygon(0 0,100% 0,100% 68%,calc(100% - 5px) 100%,0 100%);transition:all .25s;">AFR</div>
+          <div data-code="AS" style="font-family:var(--mono);font-size:8.5px;letter-spacing:.06em;padding:3px 7px;border:1px solid rgba(79,214,255,.14);color:#41618a;clip-path:polygon(0 0,100% 0,100% 68%,calc(100% - 5px) 100%,0 100%);transition:all .25s;">ASIA</div>
+          <div data-code="OC" style="font-family:var(--mono);font-size:8.5px;letter-spacing:.06em;padding:3px 7px;border:1px solid rgba(79,214,255,.14);color:#41618a;clip-path:polygon(0 0,100% 0,100% 68%,calc(100% - 5px) 100%,0 100%);transition:all .25s;">OCEA</div>
+        </div>
+      </div>
+
+      <div style="padding:12px 15px;border-top:1px solid rgba(79,214,255,.12);">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:7px;">
+          <span style="font-family:var(--mono);font-size:8.5px;letter-spacing:.2em;color:#5e7da0;">GROUND POSITION</span>
+          <span id="refGeo" style="font-family:var(--mono);font-size:10.5px;color:#bcd4ee;white-space:nowrap;font-variant-numeric:tabular-nums;">—</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <span style="font-family:var(--mono);font-size:8.5px;letter-spacing:.2em;color:#5e7da0;">COVERAGE Ø</span>
+          <span id="refCov" style="font-family:var(--mono);font-size:11px;color:#4fd6ff;font-variant-numeric:tabular-nums;">— km</span>
+        </div>
+      </div>
+
+      <div id="refPassBox" style="padding:12px 15px;border-top:1px solid rgba(79,214,255,.12);background:rgba(79,214,255,.04);">
+        <div style="font-family:var(--mono);font-size:8.5px;letter-spacing:.2em;color:#5e7da0;margin-bottom:4px;">NEXT PASS OVER YOU</div>
+        <div id="refPass" style="font-family:var(--mono);font-size:14px;font-weight:600;color:#7CFFCB;font-variant-numeric:tabular-nums;">ENABLE LOCATION ↓</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- BOTTOM: location -->
+  <div style="position:absolute;left:18px;bottom:16px;pointer-events:auto;">
+    <div id="locateBtn" style="display:flex;align-items:center;gap:10px;padding:9px 14px;border:1px solid rgba(255,79,139,.32);border-radius:5px;background:rgba(12,8,16,.66);backdrop-filter:blur(9px);cursor:pointer;">
+      <div style="position:relative;width:9px;height:9px;flex:none;">
+        <div id="refLocDot" style="width:9px;height:9px;border-radius:50%;background:#ff4f8b;box-shadow:0 0 9px #ff4f8b;"></div>
+      </div>
+      <div>
+        <div id="refLocLabel" style="font-size:12px;font-weight:600;color:#ffd0e0;letter-spacing:.04em;">ENABLE MY LOCATION</div>
+        <div id="refLocSub" style="font-family:var(--mono);font-size:9px;color:#9a6f84;letter-spacing:.08em;">tap to plot &amp; check coverage</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- BOTTOM: legend -->
+  <div style="position:absolute;right:18px;bottom:16px;pointer-events:auto;display:flex;gap:16px;align-items:center;padding:8px 15px;border:1px solid rgba(79,214,255,.14);border-radius:5px;background:rgba(7,12,22,.6);backdrop-filter:blur(9px);font-family:var(--mono);font-size:9.5px;letter-spacing:.08em;">
+    <div style="display:flex;align-items:center;gap:7px;"><span style="width:16px;height:2px;background:#4fd6ff;box-shadow:0 0 6px #4fd6ff;"></span><span style="color:#9fb6d0;">OPERATIONAL</span></div>
+    <div style="display:flex;align-items:center;gap:7px;"><span style="width:16px;height:2px;background:#ff9e45;box-shadow:0 0 6px #ff9e45;"></span><span style="color:#9fb6d0;">PLANNED</span></div>
+    <div style="display:flex;align-items:center;gap:7px;"><span style="width:8px;height:8px;border-radius:50%;background:#ff4f8b;box-shadow:0 0 6px #ff4f8b;"></span><span style="color:#9fb6d0;">YOU</span></div>
+  </div>
+
+  <!-- LOADING -->
+  <div id="loading" style="position:absolute;inset:0;background:#04060c;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;z-index:50;">
+    <div style="width:54px;height:54px;border:2px solid rgba(79,214,255,.18);border-top-color:#4fd6ff;border-radius:50%;animation:spin 1s linear infinite;box-shadow:0 0 24px rgba(79,214,255,.3);"></div>
+    <div id="refLoad" style="font-family:var(--mono);font-size:11px;letter-spacing:.32em;color:#6f93b8;">INITIALIZING ORBITAL ENGINE</div>
+  </div>
+
+</div>
+<!--__SCRIPTS__-->
